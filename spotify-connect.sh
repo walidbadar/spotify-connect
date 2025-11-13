@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Spotify API Configuration
-source ./creds/creds.sh
+CLIENT_ID="YOUR_CLIENT_ID"
+CLIENT_SECRET="YOUR_CLIENT_SECRET"
 
 # Token file (will be stored in /tmp on OpenWrt)
 TOKEN_FILE="/tmp/spotify_token"

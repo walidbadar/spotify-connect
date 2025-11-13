@@ -3,7 +3,7 @@ project(spotify-connect)
 
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -O2 -g")
 
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/creds)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 add_executable(spotify-connect
     ${CMAKE_CURRENT_SOURCE_DIR}/src/spotify-connect.c

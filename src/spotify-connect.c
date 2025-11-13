@@ -3,7 +3,7 @@
 #include <string.h>
 #include <curl/curl.h>
 
-#include "creds.h"
+#include "creds/creds.h"
 
 #define TOKEN_FILE "/tmp/spotify_token"
 #define MAX_RESPONSE_SIZE 100000
