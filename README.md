@@ -20,23 +20,30 @@ It allows you to set up API tokens, refresh them, and retrieve your currently pl
 
 ## Prerequisites
 
-- System with `bash` and `curl` installed.
-- A Spotify Developer account with a registered application:
-- You will need the **Client ID** and **Client Secret**.
-
----
+* System with `bash` and `curl` installed.
+* A Spotify Developer account with a registered application:
+* You will need the **Client ID** and **Client Secret**.
 
 ## Installation
 
-1. Make the script executable:
+
+1. Install OpenWrt packages
+```bash
+scp spotify-connect/packages/mips_24kc/base/*.ipk root@<OpenWrt-ip-address>:/tmp/
+ssh root@<OpenWrt-ip-address>
+opkg install -d ram /tmp/curl/*.ipk
+export PATH=$PATH:/tmp/usr/bin
+export LD_LIBRARY_PATH=/tmp/lib:/tmp/usr/lib
+```
+
+2. Make the script executable:
 
 ```bash
-git clone https://github.com/walidbadar/spotify-connect.git
 cd spotify-connect
 chmod +x spotify-connect.sh
 ```
 
-2. Edit the script and add your Spotify Client ID and Client Secret:
+3. Edit the script and add your Spotify Client ID and Client Secret:
 ```bash
 CLIENT_ID="your_client_id"
 CLIENT_SECRET="your_client_secret"
