@@ -42,7 +42,7 @@ CLIENT_ID="your_client_id"
 CLIENT_SECRET="your_client_secret"
 ```
 
-2. Build:
+3. Build:
 
 ```bash
 $ mkdir build && cd build

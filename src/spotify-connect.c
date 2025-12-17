@@ -10,12 +10,17 @@
 #define MAX_TOKEN_SIZE 512
 #define MAX_VALUE_SIZE 64
 
+#define STATUS "is_playing"
+#define ALBUM 2
+#define ARTIST 3
+#define TRACK 0
+
 // Static buffer for API response
 static char response_buffer[MAX_RESPONSE_SIZE];
 static size_t response_size = 0;
 
 // Callback function for curl to write response data
-static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, void *userp) {
+static size_t request_cb(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
     
     if (response_size + realsize >= MAX_RESPONSE_SIZE - 1) {
@@ -31,7 +36,7 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
 }
 
 // Extract JSON value by key
-int extract_json_value(const char *json, const char *key, char *output, size_t output_size) {
+int json_parser(const char *json, const char *key, char *output, size_t output_size) {
     char search_pattern[64];
 
     if(strcmp(key, "access_token") == 0 || strcmp(key, "refresh_token") == 0) {
@@ -56,52 +61,46 @@ int extract_json_value(const char *json, const char *key, char *output, size_t o
     return 0;
 }
 
-// Count occurrences of "name" field and get the nth one
-int get_nth_name(const char *json, int n, char *output, size_t output_size) {
+int get_track_info(const char *json, int n, char *output, size_t output_size) {
     const char *pattern = "\"name\" : \"";
     const char *pos = json;
     int count = 0;
-    
+    int found = 0;
+
     while ((pos = strstr(pos, pattern)) != NULL) {
+        pos += strlen(pattern);
         count++;
-        if (count == n) {
-            pos += strlen(pattern);
-            char *end = strchr(pos, '"');
-            if (!end) return -1;
-            
+
+        char *end = strchr(pos, '"');
+        if (!end)
+            return -1;
+
+        /* If asking for the nth name */
+        if (n > 0 && count == n) {
             size_t len = end - pos;
             if (len >= output_size) len = output_size - 1;
-            
+
             strncpy(output, pos, len);
             output[len] = '\0';
             return 0;
         }
-        pos += strlen(pattern);
-    }
-    
-    return -1;
-}
 
-// Get last "name" field
-int get_last_name(const char *json, char *output, size_t output_size) {
-    const char *pattern = "\"name\" : \"";
-    const char *pos = json;
-    int found = 0;
-    
-    while ((pos = strstr(pos, pattern)) != NULL) {
-        pos += strlen(pattern);
-        char *end = strchr(pos, '"');
-        if (end) {
+        /* If asking for the last name (n == 0), keep overwriting */
+        if (n == 0) {
             size_t len = end - pos;
             if (len >= output_size) len = output_size - 1;
-            
+
             strncpy(output, pos, len);
             output[len] = '\0';
             found = 1;
         }
     }
-    
-    return found ? 0 : -1;
+
+    /* For last-name mode */
+    if (n == 0 && found)
+        return 0;
+
+    return -1;
 }
 
 // Read token from file
@@ -176,7 +175,7 @@ int refresh_token() {
         
         curl_easy_setopt(curl, CURLOPT_URL, "https://accounts.spotify.com/api/token");
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, request_cb);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         
@@ -184,7 +183,7 @@ int refresh_token() {
         
         if (res == CURLE_OK) {
             char access_token[MAX_TOKEN_SIZE];
-            if (extract_json_value(response_buffer, "access_token", access_token, sizeof(access_token)) == 0) {
+            if (json_parser(response_buffer, "access_token", access_token, sizeof(access_token)) == 0) {
                 write_tokens(access_token, refresh_tok);
                 printf("Token refreshed successfully\n");
                 curl_easy_cleanup(curl);
@@ -225,7 +224,7 @@ int get_current_track() {
         
         curl_easy_setopt(curl, CURLOPT_URL, "https://api.spotify.com/v1/me/player/currently-playing");
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, request_cb);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         
@@ -259,11 +258,11 @@ int get_current_track() {
             char progress_ms_str[32];
             char duration_ms_str[32];
             
-            get_nth_name(response_buffer, 2, album, sizeof(album));
-            get_nth_name(response_buffer, 3, artist, sizeof(artist));
-            get_last_name(response_buffer, track, sizeof(track));
-            
-            extract_json_value(response_buffer, "is_playing", is_playing_str, sizeof(is_playing_str));
+            get_track_info(response_buffer, ALBUM, album, sizeof(album));
+            get_track_info(response_buffer, ARTIST, artist, sizeof(artist));
+            get_track_info(response_buffer, TRACK, track, sizeof(track));
+
+            json_parser(response_buffer, STATUS, is_playing_str, sizeof(is_playing_str));
             int is_playing = (memcmp(is_playing_str, "true", sizeof("true") - 1) == 0);
             
             printf("Now Playing:\n");
@@ -272,8 +271,8 @@ int get_current_track() {
             printf("  Album:  %s\n", album);
             printf("  Status: %s\n", is_playing ? "Playing" : "Paused");
             
-            if (extract_json_value(response_buffer, "progress_ms", progress_ms_str, sizeof(progress_ms_str)) == 0 &&
-                extract_json_value(response_buffer, "duration_ms", duration_ms_str, sizeof(duration_ms_str)) == 0) {
+            if (json_parser(response_buffer, "progress_ms", progress_ms_str, sizeof(progress_ms_str)) == 0 &&
+                json_parser(response_buffer, "duration_ms", duration_ms_str, sizeof(duration_ms_str)) == 0) {
                 int progress_ms = atoi(progress_ms_str);
                 int duration_ms = atoi(duration_ms_str);
                 int progress_sec = progress_ms / 1000;
@@ -323,14 +322,14 @@ int setup() {
     curl = curl_easy_init();
     
     if (curl) {
-        char post_data[2048];
+        char post_data[256];
         snprintf(post_data, sizeof(post_data),
                 "grant_type=authorization_code&code=%s&redirect_uri=https://127.0.0.1:8888/callback&client_id=%s&client_secret=%s",
                 code, CLIENT_ID, CLIENT_SECRET);
         
         curl_easy_setopt(curl, CURLOPT_URL, "https://accounts.spotify.com/api/token");
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, request_cb);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         
@@ -340,8 +339,8 @@ int setup() {
             char access_token[MAX_TOKEN_SIZE];
             char refresh_token[MAX_TOKEN_SIZE];
             
-            if (extract_json_value(response_buffer, "access_token", access_token, sizeof(access_token)) == 0 &&
-                extract_json_value(response_buffer, "refresh_token", refresh_token, sizeof(refresh_token)) == 0) {
+            if (json_parser(response_buffer, "access_token", access_token, sizeof(access_token)) == 0 &&
+                json_parser(response_buffer, "refresh_token", refresh_token, sizeof(refresh_token)) == 0) {
                 write_tokens(access_token, refresh_token);
                 printf("Setup complete! Tokens saved to %s\n", TOKEN_FILE);
                 curl_easy_cleanup(curl);
