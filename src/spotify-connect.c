@@ -293,7 +293,7 @@ int setup() {
     
     printf("=== Spotify API Setup ===\n\n");
     printf("Step 1: Open this URL in your browser:\n");
-    printf("https://accounts.spotify.com/authorize?client_id=%s&response_type=code&redirect_uri=http://localhost:8888/callback&scope=user-read-currently-playing%%20user-read-playback-state\n\n", CLIENT_ID);
+    printf("https://accounts.spotify.com/authorize?client_id=%s&response_type=code&redirect_uri=https://127.0.0.1:8888/callback&scope=user-read-currently-playing%%20user-read-playback-state\n\n", CLIENT_ID);
     printf("Step 2: After logging in, copy the 'code' parameter from the redirect URL\n\n");
     printf("Enter the code: ");
     
@@ -320,7 +320,7 @@ int setup() {
     if (curl) {
         char post_data[2048];
         snprintf(post_data, sizeof(post_data),
-                "grant_type=authorization_code&code=%s&redirect_uri=http://localhost:8888/callback&client_id=%s&client_secret=%s",
+                "grant_type=authorization_code&code=%s&redirect_uri=https://127.0.0.1:8888/callback&client_id=%s&client_secret=%s",
                 code, CLIENT_ID, CLIENT_SECRET);
         
         curl_easy_setopt(curl, CURLOPT_URL, "https://accounts.spotify.com/api/token");
@@ -359,16 +359,16 @@ int setup() {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        printf("Usage: %s {setup|current|refresh}\n\n", argv[0]);
+        printf("Usage: %s {setup|now|refresh}\n\n", argv[0]);
         printf("  setup   - Initial setup (run once)\n");
-        printf("  current - Get currently playing track\n");
+        printf("  now - Get currently playing track\n");
         printf("  refresh - Manually refresh access token\n");
         return 1;
     }
     
     if (strcmp(argv[1], "setup") == 0) {
         return setup();
-    } else if (strcmp(argv[1], "current") == 0 || strcmp(argv[1], "now") == 0) {
+    } else if (strcmp(argv[1], "now") == 0) {
         return get_current_track();
     } else if (strcmp(argv[1], "refresh") == 0) {
         return refresh_token();

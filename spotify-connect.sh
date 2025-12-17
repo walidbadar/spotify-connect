@@ -1,8 +1,8 @@
 #!/bin/sh
 
 # Spotify API Configuration
-CLIENT_ID="YOUR_CLIENT_ID"
-CLIENT_SECRET="YOUR_CLIENT_SECRET"
+CLIENT_ID="9258522c44d14324969a8ef9dbe545f2"
+CLIENT_SECRET="5f073e0b9c6a4aa1aa7643eecaf335df"
 
 # Token file (will be stored in /tmp on OpenWrt)
 TOKEN_FILE="/tmp/spotify_token"
@@ -119,7 +119,7 @@ setup() {
     echo "=== Spotify API Setup ==="
     echo ""
     echo "Step 1: Open this URL in your browser:"
-    echo "https://accounts.spotify.com/authorize?client_id=$CLIENT_ID&response_type=code&redirect_uri=http://localhost:8888/callback&scope=user-read-currently-playing%20user-read-playback-state"
+    echo "https://accounts.spotify.com/authorize?client_id=$CLIENT_ID&response_type=code&redirect_uri=https://127.0.0.1:8888/callback&scope=user-read-currently-playing%20user-read-playback-state"
     echo ""
     echo "Step 2: After logging in, copy the 'code' parameter from the redirect URL"
     echo ""
@@ -130,7 +130,7 @@ setup() {
         -H "Content-Type: application/x-www-form-urlencoded" \
         -d "grant_type=authorization_code" \
         -d "code=$CODE" \
-        -d "redirect_uri=http://localhost:8888/callback" \
+        -d "redirect_uri=https://127.0.0.1:8888/callback" \
         -d "client_id=$CLIENT_ID" \
         -d "client_secret=$CLIENT_SECRET")
     
@@ -154,17 +154,17 @@ case "$1" in
     setup)
         setup
         ;;
-    current|now)
+    now)
         get_current_track
         ;;
     refresh)
         refresh_token
         ;;
     *)
-        echo "Usage: $0 {setup|current|refresh}"
+        echo "Usage: $0 {setup|now|refresh}"
         echo ""
         echo "  setup   - Initial setup (run once)"
-        echo "  current - Get currently playing track"
+        echo "  now - Get currently playing track"
         echo "  refresh - Manually refresh access token"
         exit 1
         ;;
