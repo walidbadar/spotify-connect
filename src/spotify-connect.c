@@ -7,8 +7,8 @@
 
 #define TOKEN_FILE "/tmp/spotify_token"
 #define MAX_RESPONSE_SIZE 100000
-#define MAX_TOKEN_SIZE 2048
-#define MAX_VALUE_SIZE 512
+#define MAX_TOKEN_SIZE 512
+#define MAX_VALUE_SIZE 64
 
 // Static buffer for API response
 static char response_buffer[MAX_RESPONSE_SIZE];
@@ -32,9 +32,14 @@ static size_t WriteMemoryCallback(void *contents, size_t size, size_t nmemb, voi
 
 // Extract JSON value by key
 int extract_json_value(const char *json, const char *key, char *output, size_t output_size) {
-    char search_pattern[256];
-    snprintf(search_pattern, sizeof(search_pattern), "\"%s\" *: *\"", key);
-    
+    char search_pattern[64];
+
+    if(strcmp(key, "access_token") == 0 || strcmp(key, "refresh_token") == 0) {
+        snprintf(search_pattern, sizeof(search_pattern), "\"%s\":\"", key); // auth pattern: "\"%s\":\""
+    } else {
+        snprintf(search_pattern, sizeof(search_pattern), "\"%s\" : ", key); // general pattern: "\"%s\" : "
+    }
+ 
     char *start = strstr(json, search_pattern);
     if (!start) return -1;
     
@@ -47,13 +52,13 @@ int extract_json_value(const char *json, const char *key, char *output, size_t o
     
     strncpy(output, start, len);
     output[len] = '\0';
-    
+
     return 0;
 }
 
 // Count occurrences of "name" field and get the nth one
 int get_nth_name(const char *json, int n, char *output, size_t output_size) {
-    const char *pattern = "\"name\" *: *\"";
+    const char *pattern = "\"name\" : \"";
     const char *pos = json;
     int count = 0;
     
@@ -79,7 +84,7 @@ int get_nth_name(const char *json, int n, char *output, size_t output_size) {
 
 // Get last "name" field
 int get_last_name(const char *json, char *output, size_t output_size) {
-    const char *pattern = "\"name\" *: *\"";
+    const char *pattern = "\"name\" : \"";
     const char *pos = json;
     int found = 0;
     
@@ -238,7 +243,7 @@ int get_current_track() {
             }
             
             // Check if nothing is playing
-            if (response_size == 0 || strstr(response_buffer, "\"item\" *: *null")) {
+            if (response_size == 0 || strstr(response_buffer, "\"item\":null")) {
                 printf("Nothing is currently playing\n");
                 curl_slist_free_all(headers);
                 curl_easy_cleanup(curl);
@@ -259,7 +264,7 @@ int get_current_track() {
             get_last_name(response_buffer, track, sizeof(track));
             
             extract_json_value(response_buffer, "is_playing", is_playing_str, sizeof(is_playing_str));
-            int is_playing = (strcmp(is_playing_str, "true") == 0);
+            int is_playing = (memcmp(is_playing_str, "true", sizeof("true") - 1) == 0);
             
             printf("Now Playing:\n");
             printf("  Track:  %s\n", track);
@@ -361,7 +366,7 @@ int main(int argc, char *argv[]) {
     if (argc < 2) {
         printf("Usage: %s {setup|now|refresh}\n\n", argv[0]);
         printf("  setup   - Initial setup (run once)\n");
-        printf("  now - Get currently playing track\n");
+        printf("  now     - Get currently playing track\n");
         printf("  refresh - Manually refresh access token\n");
         return 1;
     }

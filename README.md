@@ -36,24 +36,25 @@ export PATH=$PATH:/tmp/usr/bin
 export LD_LIBRARY_PATH=/tmp/lib:/tmp/usr/lib
 ```
 
-2. Make the script executable:
-
-```bash
-cd spotify-connect
-chmod +x spotify-connect.sh
-```
-
-3. Edit the script and add your Spotify Client ID and Client Secret:
+2. Edit the creds.h and add your Spotify Client ID and Client Secret:
 ```bash
 CLIENT_ID="your_client_id"
 CLIENT_SECRET="your_client_secret"
+```
+
+2. Build:
+
+```bash
+$ mkdir build && cd build
+$ cmake ..
+$ make
 ```
 
 ## Usage
 
 1. Run the initial setup to obtain your tokens:
 ```bash
-./spotify-connect.sh setup
+$ ./spotify-connect setup
 ```
 
 * The script will print a Spotify authorization URL.
@@ -63,7 +64,7 @@ CLIENT_SECRET="your_client_secret"
 
 2. Get Currently Playing Track
 ```bash
-./spotify-connect.sh now
+$ ./spotify-connect now
 ```
 
 3. Sample output:
@@ -73,5 +74,4 @@ Now Playing:
   Artist: Ed Sheeran
   Album:  Divide
   Status: Playing
-  Time:   1:23 / 3:53
 ```
