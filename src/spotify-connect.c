@@ -5,6 +5,8 @@
 
 #include "creds.h"
 
+#define SPOTIFY_API_BASE "https://api.spotify.com/v1/me/player"
+
 #define TOKEN_FILE "/tmp/spotify_token"
 #define MAX_RESPONSE_SIZE 8192
 #define MAX_TOKEN_SIZE 256
@@ -15,11 +17,9 @@
 #define ARTIST 3
 #define TRACK 0
 
-// Static buffer for API response
 static char response_buffer[MAX_RESPONSE_SIZE];
 static size_t response_size = 0;
 
-// Callback function for curl to write response data
 static size_t request_cb(void *contents, size_t size, size_t nmemb, void *userp) {
     size_t realsize = size * nmemb;
     
@@ -35,14 +35,16 @@ static size_t request_cb(void *contents, size_t size, size_t nmemb, void *userp)
     return realsize;
 }
 
-// Extract JSON value by key
 int json_parser(const char *json, const char *key, char *output, size_t output_size) {
     char search_pattern[64];
 
     if(strcmp(key, "access_token") == 0 || strcmp(key, "refresh_token") == 0) {
-        snprintf(search_pattern, sizeof(search_pattern), "\"%s\":\"", key); // auth pattern: "\"%s\":\""
+        snprintf(search_pattern, sizeof(search_pattern), "\"%s\":\"", key);
+    }
+    else if(strcmp(key, "id") == 0) {
+        snprintf(search_pattern, sizeof(search_pattern), "\"%s\" : \"", key);
     } else {
-        snprintf(search_pattern, sizeof(search_pattern), "\"%s\" : ", key); // general pattern: "\"%s\" : "
+        snprintf(search_pattern, sizeof(search_pattern), "\"%s\" : ", key);
     }
  
     char *start = strstr(json, search_pattern);
@@ -103,7 +105,6 @@ int get_track_info(const char *json, int n, char *output, size_t output_size) {
     return -1;
 }
 
-// Read token from file
 int read_token(const char *token_type, char *output, size_t output_size) {
     FILE *fp = fopen(TOKEN_FILE, "r");
     if (!fp) {
@@ -135,7 +136,6 @@ int read_token(const char *token_type, char *output, size_t output_size) {
     return found ? 0 : -1;
 }
 
-// Write tokens to file
 int write_tokens(const char *access_token, const char *refresh_token) {
     FILE *fp = fopen(TOKEN_FILE, "w");
     if (!fp) {
@@ -150,7 +150,6 @@ int write_tokens(const char *access_token, const char *refresh_token) {
     return 0;
 }
 
-// Refresh access token
 int refresh_token() {
     char refresh_tok[MAX_TOKEN_SIZE];
     
@@ -199,19 +198,114 @@ int refresh_token() {
     return -1;
 }
 
-// Get currently playing track
+int get_active_device_id(const char *access_token, char *device_id, size_t device_id_size) {
+
+    response_size = 0;
+    memset(response_buffer, 0, sizeof(response_buffer));
+
+    CURL *curl = curl_easy_init();
+    if (!curl) return -1;
+
+    struct curl_slist *headers = NULL;
+    char auth_header[MAX_TOKEN_SIZE + 32];
+    snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", access_token);
+    headers = curl_slist_append(headers, auth_header);
+
+    char url[256];
+    snprintf(url, sizeof(url), "%s/devices", SPOTIFY_API_BASE);
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, request_cb);
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    if (res != CURLE_OK) {
+        fprintf(stderr, "Failed to fetch devices: %s\n", curl_easy_strerror(res));
+        return -1;
+    }
+
+    if (json_parser(response_buffer, "id", device_id, device_id_size) != 0) {
+        fprintf(stderr, "No device ID found in response\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+int change_track(const char *command_or_uri, const char *device_id_param) {
+    char access_token[MAX_TOKEN_SIZE];
+
+    if (read_token("access_token", access_token, sizeof(access_token)) != 0) {
+        return -1;
+    }
+
+    char device_id[64];
+    if (device_id_param) {
+        strncpy(device_id, device_id_param, sizeof(device_id)-1);
+        device_id[sizeof(device_id)-1] = '\0';
+    } else {
+        if (get_active_device_id(access_token, device_id, sizeof(device_id)) != 0) {
+            fprintf(stderr, "Error: No active Spotify device found.\n");
+            return -1;
+        }
+        printf("Using device ID: %s\n", device_id);
+    }
+
+    CURL *curl = curl_easy_init();
+    if (!curl) return -1;
+
+    struct curl_slist *headers = NULL;
+    char auth_header[MAX_TOKEN_SIZE + 32];
+    snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", access_token);
+    headers = curl_slist_append(headers, auth_header);
+    headers = curl_slist_append(headers, "Content-Type: application/json");
+
+    char url[512];
+
+    if (strcmp(command_or_uri, "next") == 0) {
+        snprintf(url, sizeof(url), "%s/next?device_id=%s", SPOTIFY_API_BASE, device_id);
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    } else if (strcmp(command_or_uri, "prev") == 0 || strcmp(command_or_uri, "previous") == 0) {
+        snprintf(url, sizeof(url), "%s/previous?device_id=%s", SPOTIFY_API_BASE, device_id);
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+    } else {
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return -1;
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, request_cb);
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        fprintf(stderr, "Spotify API request failed: %s\n", curl_easy_strerror(res));
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return -1;
+    }
+
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return 0;
+}
+
 int get_current_track() {
     char access_token[MAX_TOKEN_SIZE];
     
     if (read_token("access_token", access_token, sizeof(access_token)) != 0) {
         return -1;
     }
+
+    response_size = 0;
+    memset(response_buffer, 0, sizeof(response_buffer));
     
     CURL *curl;
     CURLcode res;
-    
-    response_size = 0;
-    memset(response_buffer, 0, sizeof(response_buffer));
     
     curl_global_init(CURL_GLOBAL_DEFAULT);
     curl = curl_easy_init();
@@ -291,7 +385,6 @@ int get_current_track() {
     return 0;
 }
 
-// Setup function
 int setup() {
     char code[256];
 
@@ -370,6 +463,7 @@ int main(int argc, char *argv[]) {
     if (argc < 2) {
         printf("Usage: %s {setup|now|refresh}\n\n", argv[0]);
         printf("  setup   - Initial setup (run once)\n");
+        printf("  change  - Manually change to next track\n");
         printf("  now     - Get currently playing track\n");
         printf("  refresh - Manually refresh access token\n");
         return 1;
@@ -377,6 +471,8 @@ int main(int argc, char *argv[]) {
     
     if (strcmp(argv[1], "setup") == 0) {
         return setup();
+    } else if (strcmp(argv[1], "change") == 0 && argc == 3) {
+        return change_track(argv[2], NULL);
     } else if (strcmp(argv[1], "now") == 0) {
         return get_current_track();
     } else if (strcmp(argv[1], "refresh") == 0) {
