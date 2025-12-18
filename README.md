@@ -1,6 +1,6 @@
 # Spotify Connect
 
-A simple shell script to interact with the Spotify Web API.  
+A simple C app to interact with the Spotify Web API using libcurl. 
 It allows you to set up API tokens, refresh them, and retrieve your currently playing track directly from the command line. It is lightweight and works in any standard Linux environment with `bash` and `curl`.
 
 ---
@@ -70,8 +70,9 @@ $ ./spotify-connect now
 3. Sample output:
 ```bash
 Now Playing:
-  Track:  Shape of You
-  Artist: Ed Sheeran
-  Album:  Divide
+  Track:  Cure
+  Artist: Marianne Beaulieu
+  Album:  The Committee
   Status: Playing
+  Time:   0:12 / 4:02
 ```

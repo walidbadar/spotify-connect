@@ -322,15 +322,20 @@ int setup() {
     curl = curl_easy_init();
     
     if (curl) {
-        char post_data[256];
+        char post_data[512];
         snprintf(post_data, sizeof(post_data),
-                "grant_type=authorization_code&code=%s&redirect_uri=https://127.0.0.1:8888/callback&client_id=%s&client_secret=%s",
-                code, CLIENT_ID, CLIENT_SECRET);
-        
+                "grant_type=authorization_code&code=%s&redirect_uri=https://127.0.0.1:8888/callback",
+                code);
+
+        struct curl_slist *headers = NULL;
+        headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+
         curl_easy_setopt(curl, CURLOPT_URL, "https://accounts.spotify.com/api/token");
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, post_data);
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_USERPWD, CLIENT_ID ":" CLIENT_SECRET);
+
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, request_cb);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         
         res = curl_easy_perform(curl);
