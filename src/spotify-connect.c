@@ -6,8 +6,8 @@
 #include "creds.h"
 
 #define TOKEN_FILE "/tmp/spotify_token"
-#define MAX_RESPONSE_SIZE 100000
-#define MAX_TOKEN_SIZE 512
+#define MAX_RESPONSE_SIZE 8192
+#define MAX_TOKEN_SIZE 256
 #define MAX_VALUE_SIZE 64
 
 #define STATUS "is_playing"
@@ -293,8 +293,8 @@ int get_current_track() {
 
 // Setup function
 int setup() {
-    char code[512];
-    
+    char code[256];
+
     printf("=== Spotify API Setup ===\n\n");
     printf("Step 1: Open this URL in your browser:\n");
     printf("https://accounts.spotify.com/authorize?client_id=%s&response_type=code&redirect_uri=https://127.0.0.1:8888/callback&scope=user-read-currently-playing%%20user-read-playback-state\n\n", CLIENT_ID);
@@ -322,7 +322,7 @@ int setup() {
     curl = curl_easy_init();
     
     if (curl) {
-        char post_data[512];
+        char post_data[384];
         snprintf(post_data, sizeof(post_data),
                 "grant_type=authorization_code&code=%s&redirect_uri=https://127.0.0.1:8888/callback",
                 code);
