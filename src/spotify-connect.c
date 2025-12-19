@@ -20,21 +20,6 @@
 static char response_buffer[MAX_RESPONSE_SIZE];
 static size_t response_size = 0;
 
-static size_t request_cb(void *contents, size_t size, size_t nmemb, void *userp) {
-    size_t realsize = size * nmemb;
-    
-    if (response_size + realsize >= MAX_RESPONSE_SIZE - 1) {
-        printf("Response too large\n");
-        return 0;
-    }
-    
-    memcpy(&response_buffer[response_size], contents, realsize);
-    response_size += realsize;
-    response_buffer[response_size] = '\0';
-    
-    return realsize;
-}
-
 int json_parser(const char *json, const char *key, char *output, size_t output_size) {
     char search_pattern[64];
 
@@ -105,6 +90,21 @@ int json_parse_playback_info(const char *json, int n, char *output, size_t outpu
     return -1;
 }
 
+static size_t request_cb(void *contents, size_t size, size_t nmemb, void *userp) {
+    size_t realsize = size * nmemb;
+    
+    if (response_size + realsize >= MAX_RESPONSE_SIZE - 1) {
+        printf("Response too large\n");
+        return 0;
+    }
+    
+    memcpy(&response_buffer[response_size], contents, realsize);
+    response_size += realsize;
+    response_buffer[response_size] = '\0';
+    
+    return realsize;
+}
+
 int read_token(const char *token_type, char *output, size_t output_size) {
     FILE *fp = fopen(TOKEN_FILE, "r");
     if (!fp) {
@@ -150,21 +150,15 @@ int write_tokens(const char *access_token, const char *refresh_token) {
     return 0;
 }
 
-int refresh_token() {
+int refresh_token(CURL *curl) {
     char refresh_tok[MAX_TOKEN_SIZE];
     
     if (read_token("refresh_token", refresh_tok, sizeof(refresh_tok)) != 0) {
         return -1;
     }
-    
-    CURL *curl;
-    CURLcode res;
-    
+
     response_size = 0;
     memset(response_buffer, 0, sizeof(response_buffer));
-
-    curl = curl_easy_init();
-    if (!curl) return -1;
     
     char post_data[2048];
     snprintf(post_data, sizeof(post_data),
@@ -177,61 +171,21 @@ int refresh_token() {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     
-    res = curl_easy_perform(curl);
+    CURLcode res = curl_easy_perform(curl);
     
     if (res == CURLE_OK) {
         char access_token[MAX_TOKEN_SIZE];
         if (json_parser(response_buffer, "access_token", access_token, sizeof(access_token)) == 0) {
             write_tokens(access_token, refresh_tok);
             printf("Token refreshed successfully\n");
-            curl_easy_cleanup(curl);
-            curl_global_cleanup();
             return 0;
         }
     }
-        
-    curl_easy_cleanup(curl);
+
     return -1;
 }
 
-int get_active_device_id(const char *access_token, char *device_id, size_t device_id_size) {
-
-    response_size = 0;
-    memset(response_buffer, 0, sizeof(response_buffer));
-
-    CURL *curl = curl_easy_init();
-    if (!curl) return -1;
-
-    struct curl_slist *headers = NULL;
-    char auth_header[MAX_TOKEN_SIZE + 32];
-    snprintf(auth_header, sizeof(auth_header), "Authorization: Bearer %s", access_token);
-    headers = curl_slist_append(headers, auth_header);
-
-    char url[64];
-    snprintf(url, sizeof(url), "%s/devices", SPOTIFY_API_BASE);
-
-    curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, request_cb);
-
-    CURLcode res = curl_easy_perform(curl);
-    curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
-    if (res != CURLE_OK) {
-        fprintf(stderr, "Failed to fetch devices: %s\n", curl_easy_strerror(res));
-        return -1;
-    }
-
-    if (json_parser(response_buffer, "id", device_id, device_id_size) != 0) {
-        fprintf(stderr, "No device ID found in response\n");
-        return -1;
-    }
-
-    return 0;
-}
-
-int playback_ctrl(const char *command_or_uri, const char *device_id_param) {
+int playback_ctrl(CURL *curl, const char *command_or_uri) {
     char access_token[MAX_TOKEN_SIZE];
 
     printf("Playback control command: %s\n", command_or_uri);
@@ -239,21 +193,6 @@ int playback_ctrl(const char *command_or_uri, const char *device_id_param) {
     if (read_token("access_token", access_token, sizeof(access_token)) != 0) {
         return -1;
     }
-
-    char device_id[64];
-    if (device_id_param) {
-        strncpy(device_id, device_id_param, sizeof(device_id)-1);
-        device_id[sizeof(device_id)-1] = '\0';
-    } else {
-        if (get_active_device_id(access_token, device_id, sizeof(device_id)) != 0) {
-            fprintf(stderr, "Error: No active Spotify device found.\n");
-            return -1;
-        }
-        printf("Using device ID: %s\n", device_id);
-    }
-
-    CURL *curl = curl_easy_init();
-    if (!curl) return -1;
 
     struct curl_slist *headers = NULL;
     char auth_header[MAX_TOKEN_SIZE + 64];
@@ -263,17 +202,13 @@ int playback_ctrl(const char *command_or_uri, const char *device_id_param) {
     char url[256];
 
     if (strcmp(command_or_uri, "next") == 0) {
-        snprintf(url, sizeof(url), "%s/next?device_id=%s", SPOTIFY_API_BASE, device_id);
+        snprintf(url, sizeof(url), "%s/next", SPOTIFY_API_BASE);
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    } else if (strcmp(command_or_uri, "prev") == 0 || strcmp(command_or_uri, "previous") == 0) {
-        snprintf(url, sizeof(url), "%s/previous?device_id=%s", SPOTIFY_API_BASE, device_id);
-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
-    } else if (strcmp(command_or_uri, "volume") == 0) {
-        snprintf(url, sizeof(url), "%s/volume?volume_percent=50", SPOTIFY_API_BASE);
+    } else if (strcmp(command_or_uri, "prev") == 0) {
+        snprintf(url, sizeof(url), "%s/previous", SPOTIFY_API_BASE);
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
     } else {
         curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
         fprintf(stderr, "Unknown playback command: %s\n", command_or_uri);
         return -1;
     }
@@ -286,16 +221,14 @@ int playback_ctrl(const char *command_or_uri, const char *device_id_param) {
     if (res != CURLE_OK) {
         fprintf(stderr, "Spotify API request failed: %s\n", curl_easy_strerror(res));
         curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
         return -1;
     }
 
     curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
     return 0;
 }
 
-int playback_info() {
+int playback_info(CURL *curl) {
     char access_token[MAX_TOKEN_SIZE];
     
     if (read_token("access_token", access_token, sizeof(access_token)) != 0) {
@@ -304,12 +237,6 @@ int playback_info() {
 
     response_size = 0;
     memset(response_buffer, 0, sizeof(response_buffer));
-    
-    CURL *curl;
-    CURLcode res;
-
-    curl = curl_easy_init();
-    if (!curl) return -1;
 
     struct curl_slist *headers = NULL;
     char auth_header[MAX_TOKEN_SIZE + 64];
@@ -325,25 +252,21 @@ int playback_info() {
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, NULL);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     
-    res = curl_easy_perform(curl);
+    CURLcode res = curl_easy_perform(curl);
     
     if (res == CURLE_OK) {
         // Check if token expired
         if (strstr(response_buffer, "token expired")) {
             printf("Token expired, refreshing...\n");
             curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
-            curl_global_cleanup();
-            refresh_token();
-            return playback_info(); // Retry
+            refresh_token(curl);
+            return playback_info(curl); // Retry
         }
         
         // Check if nothing is playing
         if (response_size == 0 || strstr(response_buffer, "\"item\":null")) {
             printf("Nothing is currently playing\n");
             curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
-            curl_global_cleanup();
             return 0;
         }
         
@@ -381,11 +304,11 @@ int playback_info() {
     }
         
     curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
+
     return 0;
 }
 
-int setup() {
+int setup(CURL *curl) {
     char code[256];
 
     printf("=== Spotify API Setup ===\n\n");
@@ -404,15 +327,9 @@ int setup() {
     if (newline) *newline = '\0';
     
     printf("Exchanging code for tokens...\n");
-    
-    CURL *curl;
-    CURLcode res;
-    
+
     response_size = 0;
     memset(response_buffer, 0, sizeof(response_buffer));
-
-    curl = curl_easy_init();
-    if (!curl) return -1;
     
     char post_data[384];
     snprintf(post_data, sizeof(post_data),
@@ -430,7 +347,7 @@ int setup() {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, request_cb);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     
-    res = curl_easy_perform(curl);
+    CURLcode res = curl_easy_perform(curl);
     
     if (res == CURLE_OK) {
         char access_token[MAX_TOKEN_SIZE];
@@ -440,8 +357,6 @@ int setup() {
             json_parser(response_buffer, "refresh_token", refresh_token, sizeof(refresh_token)) == 0) {
             write_tokens(access_token, refresh_token);
             printf("Setup complete! Tokens saved to %s\n", TOKEN_FILE);
-            curl_easy_cleanup(curl);
-            curl_global_cleanup();
             return 0;
         } else {
             printf("Error: Failed to get tokens\n");
@@ -450,8 +365,7 @@ int setup() {
     } else {
         printf("Error: %s\n", curl_easy_strerror(res));
     }
-        
-    curl_easy_cleanup(curl);
+
     return -1;
 }
 
@@ -465,21 +379,27 @@ int main(int argc, char *argv[]) {
         printf("  now     - Get currently playing track\n");
         return 1;
     }
+
+    CURL *curl = curl_easy_init();
+    if (!curl) return -1;
     
     if (strcmp(argv[1], "setup") == 0) {
-        return setup();
+        return setup(curl);
     } else if (strcmp(argv[1], "refresh") == 0) {
-        return refresh_token();
+        return refresh_token(curl);
     } else if (strcmp(argv[1], "next") == 0) {
-        return playback_ctrl(argv[1], NULL);
+        return playback_ctrl(curl, "next");
     } else if (strcmp(argv[1], "prev") == 0) {
-        return playback_ctrl(argv[1], NULL);
+        return playback_ctrl(curl, "prev");
     } else if (strcmp(argv[1], "now") == 0) {
-        return playback_info();
+        return playback_info(curl);
     } else {
         printf("Unknown command: %s\n", argv[1]);
+        curl_easy_cleanup(curl);
         return 1;
     }
+
+    curl_easy_cleanup(curl);
     
     return 0;
 }
